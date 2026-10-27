@@ -1,0 +1,37 @@
+# 演出雷达：跑一轮抓取（docs/deploy.md）。由 show-radar-run.timer 每 6 小时起一次，跑完退出。
+# @NODE@ 由 install.sh 换成这台服务器上 node 的路径。
+# 用专门的系统用户 showradar，除了数据目录 /opt/show-radar/shared/runtime，别的目录都是只读的。
+[Unit]
+Description=Show Radar scrape round
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=showradar
+Group=showradar
+WorkingDirectory=/opt/show-radar/current
+# 和手动的 show-radar run、check 不同时跑：程序自己用 runtime/run.lock 排队
+ExecStart=@NODE@ --no-warnings /opt/show-radar/current/src/cli.mjs run
+Environment=NODE_ENV=production
+Environment=SHOW_RADAR_RUNTIME=/opt/show-radar/shared/runtime
+Environment=SHOW_RADAR_ARTISTS=/opt/show-radar/shared/runtime/artists.txt
+Environment=HOME=/opt/show-radar/shared/runtime
+# 一轮最多取 25 分钟（src/run.mjs 的 ROUND_BUDGET_MS），到点就把已经取到的存下；这里多留时间收尾
+TimeoutStartSec=40min
+UMask=0077
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/show-radar/shared/runtime
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=

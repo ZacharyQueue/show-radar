@@ -1,0 +1,12 @@
+# 北京时间 3:07、9:07、15:07、21:07 各跑一轮，每次随机推迟 0 到 20 分钟：
+# 部署的人多了，不在同一分钟请求同一个站。服务器关着错过的，开机后补跑一次。
+[Unit]
+Description=Show Radar scrape every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 03,09,15,21:07:00 Asia/Shanghai
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

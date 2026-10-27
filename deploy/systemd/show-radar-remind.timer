@@ -1,0 +1,10 @@
+# 每 10 分钟看一次有没有快开售的场次。
+[Unit]
+Description=Show Radar sale reminders every 10 minutes
+
+[Timer]
+OnCalendar=*:00/10
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

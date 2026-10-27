@@ -1,0 +1,34 @@
+# 演出雷达：开售前提醒（docs/deploy.md）。只读状态库、发推送，不抓取。
+# @NODE@ 由 install.sh 换成这台服务器上 node 的路径。
+[Unit]
+Description=Show Radar sale reminders
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=showradar
+Group=showradar
+WorkingDirectory=/opt/show-radar/current
+ExecStart=@NODE@ --no-warnings /opt/show-radar/current/src/cli.mjs remind
+Environment=NODE_ENV=production
+Environment=SHOW_RADAR_RUNTIME=/opt/show-radar/shared/runtime
+Environment=SHOW_RADAR_ARTISTS=/opt/show-radar/shared/runtime/artists.txt
+Environment=HOME=/opt/show-radar/shared/runtime
+TimeoutStartSec=5min
+UMask=0077
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/show-radar/shared/runtime
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
