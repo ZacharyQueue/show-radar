@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { BlockedError } from '../src/errors.mjs'
 import { makeListing } from '../src/listing.mjs'
 import { memoryFetchLog } from '../src/fetch-log.mjs'
-import { runRound } from '../src/run.mjs'
+import { deliver, runRound } from '../src/run.mjs'
 import { runReminders } from '../src/remind.mjs'
 import { openStore } from '../src/store.mjs'
 import { fromBeijing } from '../src/time.mjs'
@@ -375,4 +375,50 @@ test('一天只取一次的数据源一轮没取完：下一轮只取今天还�
   fetched.length = 0
   await go()
   assert.equal(fetched.length, 0, '今天都取过了')
+})
+
+test('暂停推送：照常抓取、记下事件，什么都不发；恢复后补发还有用的，开售时间过了的不补', async () => {
+  const { store, state, run, advance, now } = setup()
+  const wuxiSale = TUE + 30 * HOUR
+  const xiamenSale = TUE + 8 * HOUR
+  const xiamen = { city: '厦门', dateStart: '2026-10-31', dateEnd: '2026-11-08' }
+  state.damai = [ticket('damai', 'd1'), ticket('damai', 'd2', xiamen)]
+  await run(recorder())
+  store.setPushPausedAt(now())
+
+  advance(6 * HOUR)
+  state.damai = [ticket('damai', 'd1', { status: 'presale', saleTimes: [wuxiSale] }), ticket('damai', 'd2', { ...xiamen, status: 'presale', saleTimes: [xiamenSale] })]
+  const quiet = recorder()
+  await run(quiet)
+  assert.equal(quiet.cards.length + quiet.texts.length, 0, '暂停时什么都不发')
+  assert.equal(store.pendingEvents().length, 2, '事件照常记下')
+  assert.equal(await runReminders({ store, notifier: recorder(), now: () => xiamenSale - 35 * 60_000 }), 0, '开售提醒也不发')
+
+  // 厦门已经开售了，恢复时不补；无锡还没开，补发
+  advance(4 * HOUR)
+  store.setPushPausedAt(null)
+  const back = recorder()
+  assert.equal(await deliver({ store, notifier: back, now, log: () => {} }), 1)
+  assert.match(back.cards[0].title, /无锡 · 待开票/)
+  assert.equal(await runReminders({ store, notifier: recorder(), now: () => wuxiSale - 35 * 60_000 }), 1, '暂停时没记成提醒过，恢复后照常提醒')
+})
+
+test('暂停期间不报平台的毛病；恢复时还没好的，下一轮照常报', async () => {
+  const { store, run, advance } = setup()
+  const adapters = [
+    adapter('damai', async () => {
+      throw new BlockedError('damai', 'HTTP 403')
+    }),
+  ]
+  store.setPushPausedAt(TUE)
+  for (let i = 0; i < 3; i++) {
+    const r = recorder()
+    await run(r, { adapters })
+    assert.equal(r.texts.length, 0)
+    advance(6 * HOUR)
+  }
+  store.setPushPausedAt(null)
+  const r = recorder()
+  await run(r, { adapters })
+  assert.equal(r.texts.filter((t) => t.includes('连着')).length, 1)
 })

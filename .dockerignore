@@ -1,0 +1,10 @@
+# 镜像只要 src、config 和 package.json。.runtime 里有推送密钥，绝不能进构建上下文
+.git
+.runtime
+artifacts
+node_modules
+fixtures
+tests
+docs
+public
+scripts

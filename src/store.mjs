@@ -102,6 +102,9 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 `
 
+// 推送总开关：暂停时存暂停的时刻，恢复时删掉
+const PUSH_PAUSED_KEY = 'push.pausedAt'
+
 export function openStore(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
@@ -135,6 +138,18 @@ export function openStore(file) {
           value == null ? null : typeof value === 'string' ? value : JSON.stringify(value),
         ),
     },
+
+    // —— 推送总开关 ——
+
+    /** 暂停推送的时刻，没暂停是 null。暂停期间照常抓取、照常记事件，只是不发，见 run.mjs、remind.mjs。 */
+    pushPausedAt: () => {
+      const v = q('SELECT value FROM kv WHERE key = ?').get(PUSH_PAUSED_KEY)?.value
+      return v == null ? null : Number(v)
+    },
+    setPushPausedAt: (at) =>
+      at == null
+        ? q('DELETE FROM kv WHERE key = ?').run(PUSH_PAUSED_KEY)
+        : q('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(PUSH_PAUSED_KEY, String(at)),
 
     // —— 艺人 ——
 

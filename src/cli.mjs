@@ -21,6 +21,8 @@ const HELP = `演出雷达：跟踪关注的艺人在全国的演出，阶段一
   status                     列出每位艺人在跟踪的演出
   setup-push                 选推送通道、填密钥，填完发一条测试消息；也能去掉配好的通道
   test-push                  给配好的每个通道发一条测试消息
+  pause                      暂停推送：照常抓取，什么都不发
+  resume                     恢复推送，马上补发攒下的、还有用的消息
   check [--source damai]     每个数据源发一两个请求，看通不通
   run [--dry-run] [--artist 名字] [--source damai] [--force-slow]
                              跑一轮抓取。--dry-run 在状态库的副本上跑，只打印要推的消息；
@@ -57,6 +59,10 @@ async function main() {
       return cmdStatus()
     case 'test-push':
       return cmdTestPush()
+    case 'pause':
+      return cmdPause()
+    case 'resume':
+      return cmdResume()
     case 'setup-push':
       return cmdSetupPush()
     case 'setup-wecom':
@@ -291,7 +297,7 @@ async function cmdRemind(flags) {
 
 async function cmdDaemon() {
   const log = (msg) => console.log(`${stamp(Date.now())} ${msg}`)
-  log('常驻模式：抓取在北京时间 3:07、9:07、15:07、21:07 前后各一轮，开售提醒每 10 分钟一次。按 Ctrl+C 停止。')
+  log('常驻模式：抓取在北京时间 9:07、21:07 前后各一轮，开售提醒每 10 分钟一次。按 Ctrl+C 停止。')
   await app.daemon({ log, signal: stopping.signal })
   log('停了。')
 }
@@ -306,14 +312,30 @@ async function cmdCheck(flags) {
   process.exitCode = allOk ? 0 : 1
 }
 
+function cmdPause() {
+  const { pausedAt } = app.pausePush()
+  console.log(`推送暂停了（${stamp(pausedAt)} 起）。照常抓取，消息先攒着；运行 resume 恢复，会补发还有用的。`)
+}
+
+async function cmdResume() {
+  const { delivered } = await app.resumePush({ log: console.log })
+  if (delivered == null) console.log('推送恢复了。正有一轮在跑，攒下的消息它抓完就发。')
+  else console.log(delivered ? `推送恢复了，补发了 ${delivered} 条。` : '推送恢复了，没有要补发的。')
+}
+
 function cmdStatus() {
+  const pausedAt = app.pushPausedAt()
+  if (pausedAt) console.log(`推送暂停中（${stamp(pausedAt)} 起），照常抓取。运行 resume 恢复。`)
   const artists = app.status()
   if (!artists.length) console.log('还没跑过抓取，或者还没关注艺人。先 follow，再 run。')
   for (const a of artists) {
     const ids = a.platforms.map((p) => `${p.label} ${p.id}${p.name ? `（${p.name}）` : ''}`)
     console.log(`\n${a.key}${a.aliases.length ? `（${a.aliases.join('、')}）` : ''}　${ids.join('，') || '还没找到平台 ID'}`)
     if (!a.shows.length) console.log('  没有在跟踪的演出')
-    for (const s of a.shows) console.log(`  · ${s.line}　${s.venue ?? ''}`)
+    for (const s of a.shows) {
+      console.log(`  · ${s.line}`)
+      console.log(`    ${[s.name, s.venue].filter(Boolean).join(' · ')}`)
+    }
   }
 }
 

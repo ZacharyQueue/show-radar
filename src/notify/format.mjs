@@ -24,7 +24,7 @@ export function eventCard(event, show, listings) {
   const lines = [
     { cls: 'gray', text: whenWhere(show), cut: 1 },
     { cls: 'highlight', text: mainLine(event, show, listings) },
-    { cls: 'normal', text: show.isMixed ? `${show.title.includes('音乐节') ? '音乐节' : '拼盘演出'}：${show.title}` : show.title, cut: 0 },
+    { cls: 'normal', text: showTitle(show), cut: 0 },
     { cls: 'gray', text: timeline(show).join(' → '), cut: 2 },
   ]
   const saleAt = TIMED_KINDS.has(event.kind) ? event.saleAt : event.kind === 'resumed' ? event.detail?.nextSaleAt : null
@@ -40,7 +40,7 @@ export function reminderCard(show, listings) {
   const lines = [
     { cls: 'highlight', text: `${formatSaleTime(show.nextSaleAt)} 开售${sources ? `（${sources}）` : ''}` },
     { cls: 'gray', text: whenWhere(show), cut: 1 },
-    { cls: 'normal', text: show.title, cut: 0 },
+    { cls: 'normal', text: showTitle(show), cut: 0 },
   ]
   const event = { kind: 'sale_announced', saleAt: show.nextSaleAt, detail: {} }
   const parts = shortParts(`${show.artistKey}·${show.city ?? '城市未定'}`, ` ${formatClock(show.nextSaleAt)} 开售`)
@@ -137,6 +137,18 @@ export function weeklyText({ artistCount, showCount, pushedCount, health }) {
   const bad = health.filter((h) => !h.ok)
   lines.push(bad.length ? `取不到数据的：${bad.map((h) => `${SOURCE_LABELS[h.source] ?? h.source}（${h.reason}）`).join('、')}。` : '各数据源都正常。')
   return truncateBytes(lines.join('\n'), TEXT_MAX)
+}
+
+/** 多人同台的演出：标题带“音乐节”的叫音乐节，别的叫拼盘演出；专场返回 null。推送、网页、命令行都靠它和专场分开。 */
+export function mixedLabel(show) {
+  if (!show.isMixed) return null
+  return (show.title ?? '').includes('音乐节') ? '音乐节' : '拼盘演出'
+}
+
+/** 演出名，多人同台的前面标“音乐节：”“拼盘演出：”。 */
+export function showTitle(show) {
+  const label = mixedLabel(show)
+  return label && show.title ? `${label}：${show.title}` : show.title
 }
 
 export function showLine(show) {

@@ -102,11 +102,12 @@ test('同时只跑一轮：第二个等第一个跑完；进程死了留下的�
   fs.rmSync(file)
 })
 
-test('常驻模式的时刻：北京时间 3:07、9:07、15:07、21:07，再随机推迟 0 到 20 分钟', () => {
+test('常驻模式的时刻：北京时间 9:07、21:07，再随机推迟 0 到 20 分钟', () => {
   const at = (h, m) => fromBeijing(2026, 10, 27, h, m)
   assert.equal(nextRoundAt(at(8, 0), () => 0), at(9, 7))
-  assert.equal(nextRoundAt(at(9, 7), () => 0), at(15, 7), '正好在点上算下一轮')
-  assert.equal(nextRoundAt(at(22, 0), () => 0), fromBeijing(2026, 10, 28, 3, 7), '过了 21:07 是第二天 3:07')
+  assert.equal(nextRoundAt(at(9, 7), () => 0), at(21, 7), '正好在点上算下一轮')
+  assert.equal(nextRoundAt(at(22, 0), () => 0), fromBeijing(2026, 10, 28, 9, 7), '过了 21:07 是第二天 9:07')
+  assert.equal(nextRoundAt(at(2, 0), () => 0), at(9, 7), '半夜不抓')
   const late = nextRoundAt(at(8, 0), () => 0.999)
   assert.ok(late > at(9, 7) && late < at(9, 7) + MAX_JITTER_MS)
   assert.equal(beijingParts(nextRoundAt(at(16, 0), () => 0)).hour, 21)
@@ -349,19 +350,19 @@ test('常驻模式：两个固定时刻之间最多补一轮，不会变成每�
   plan = planNextRound(at(9, 8), skipped, plan, none)
   assert.equal(plan.next, at(9, 31))
   plan = planNextRound(at(9, 33), [{ artists: 1 }], plan, none)
-  assert.equal(plan.next, at(15, 7))
+  assert.equal(plan.next, at(21, 7))
 
   // 一部分被跳过、一部分取到：不补轮，免得两组交替触发
   plan = planNextRound(at(10, 0), [{ artists: 3, recent: ['乙'], retryAt: at(10, 40) }], {}, none)
-  assert.equal(plan.next, at(15, 7))
+  assert.equal(plan.next, at(21, 7))
 
   // 时间到了没取完：半小时后补一轮；补的那轮又没取完，也不再补，等固定时刻
   plan = planNextRound(at(9, 32), [{ artists: 30, unfinished: ['丙'] }], {}, none)
   assert.equal(plan.next, at(10, 2))
   plan = planNextRound(at(10, 27), [{ artists: 20, unfinished: ['丁'], recent: ['甲'], retryAt: at(10, 30) }], plan, none)
-  assert.equal(plan.next, at(15, 7))
-  plan = planNextRound(at(15, 30), [{ artists: 5, unfinished: ['丁'] }], plan, none)
-  assert.equal(plan.next, at(16, 0), '到了下一个固定时刻，补轮的名额重新算')
+  assert.equal(plan.next, at(21, 7))
+  plan = planNextRound(at(21, 30), [{ artists: 5, unfinished: ['丁'] }], plan, none)
+  assert.equal(plan.next, at(22, 0), '到了下一个固定时刻，补轮的名额重新算')
 })
 
 test('等锁时收到停止信号就不再等', async () => {

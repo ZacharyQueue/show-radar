@@ -370,3 +370,16 @@ test('secrets.env：手写的 export 前缀也认；键名不对、值里有控�
 test('check 收到停止信号时没开始就说一声，不打调用栈', async () => {
   await assert.rejects(app.check({ signal: AbortSignal.abort() }), (err) => err instanceof app.AppError && /收到停止信号，没开始检查/.test(err.message))
 })
+
+test('推送总开关：暂停、恢复都走同一个开关，网页状态里看得到', async () => {
+  const paused = await call('POST', '/api/pause')
+  assert.equal(paused.status, 200)
+  assert.ok(paused.json.pausedAt > 0)
+  assert.equal((await getState()).pushPausedAt, paused.json.pausedAt)
+  assert.equal(app.pushPausedAt(), paused.json.pausedAt, '命令行看到的是同一个开关')
+  assert.equal((await call('POST', '/api/pause')).json.pausedAt, paused.json.pausedAt, '再按一次暂停，暂停的时刻不变')
+  const resumed = await call('DELETE', '/api/pause')
+  assert.equal(resumed.status, 200)
+  assert.equal(resumed.json.delivered, 0, '没有攒着的消息')
+  assert.equal((await getState()).pushPausedAt, null)
+})

@@ -27,12 +27,12 @@ import { MIN_GAP_FLOOR_MS, createSourceClient, msUntilSourceGap, onSourceRequest
 import { withLock } from './lock.mjs'
 import { parseBarkInput } from './notify/channels.mjs'
 import { isEmail, smtpHostFor } from './notify/email.mjs'
-import { pickUrl, showLine } from './notify/format.mjs'
+import { mixedLabel, pickUrl, showLine, showTitle } from './notify/format.mjs'
 import { CHANNELS, ENV_OVERRIDABLE_KEYS, createConsoleNotifier, createNotifier, createUnconfiguredNotifier, inspectChannels } from './notify/index.mjs'
 import { runReminders } from './remind.mjs'
-import { runRound } from './run.mjs'
+import { deliver, runRound } from './run.mjs'
 import { REMIND_EVERY_MS, planNextRound } from './schedule.mjs'
-import { SOURCE_LABELS, SOURCE_ORDER, stageLabel } from './stage.mjs'
+import { SOURCE_LABELS, SOURCE_ORDER, progress, stageLabel } from './stage.mjs'
 import { openStore } from './store.mjs'
 import { sameName } from './text.mjs'
 import { beijingParts, formatDateRange, formatSaleTime } from './time.mjs'
@@ -437,6 +437,41 @@ export async function remindOnce({ dryRun = false, log } = {}) {
   })
 }
 
+// ---------- 推送总开关 ----------
+
+/** 暂停推送：照常抓取、照常记录，什么都不发。已经暂停的，暂停时刻不变。返回 { pausedAt }。 */
+export function pausePush() {
+  return withStoreSync((store) => {
+    if (store.pushPausedAt() == null) store.setPushPausedAt(Date.now())
+    return { pausedAt: store.pushPausedAt() }
+  })
+}
+
+/**
+ * 恢复推送，马上补发攒下的、还有用的。返回 { delivered }：补发了几条。
+ * 正有一轮在跑时（这个进程里，或者别的进程拿着锁）是 null：交给那一轮收尾时发，免得两边各发一遍。
+ */
+export async function resumePush({ log = () => {} } = {}) {
+  withStoreSync((store) => store.setPushPausedAt(null))
+  if (busy) return { delivered: null }
+  try {
+    const delivered = await withLock(
+      LOCK_FILE,
+      () => withStoreAsync({}, (store) => deliver({ store, notifier: makeNotifier(store, { log }), now: Date.now, log })),
+      { waitMs: 0, log: () => {} },
+    )
+    return { delivered }
+  } catch (err) {
+    if (err.code === 'BUSY') return { delivered: null }
+    throw err
+  }
+}
+
+/** 推送暂停的时刻，没暂停是 null。 */
+export function pushPausedAt() {
+  return withStoreSync((store) => store.pushPausedAt())
+}
+
 /**
  * 每个数据源发一两个请求，看通不通。同一个数据源两次至少隔 1 分钟。
  * 返回 { results: [{ source, label, kind, ok, detail, requests }], allOk, notes, skipped, push: { ready, problems } }。
@@ -603,16 +638,29 @@ function statusOf(store) {
           city: s.city,
           venue: s.venue,
           title: s.title,
+          // 音乐节、拼盘演出：网页挂成小标签，命令行用带标签的 name
+          mixed: mixedLabel(s),
+          name: showTitle(s),
           dates: formatDateRange(s.dateStart, s.dateEnd),
           stage: s.stage,
           stageLabel: stageLabel(s.stage, s.round),
           nextSale: s.nextSaleAt && (s.stage === 'sale_pending' || s.stage === 'resale_pending') ? formatSaleTime(s.nextSaleAt) : null,
           line: showLine(s),
-          sources: SOURCE_ORDER.filter((src) => listings.some((l) => l.source === src)).map((src) => SOURCE_LABELS[src]),
+          // 只列卖票的平台。文旅部在时间线的“报批”那一格
+          sources: SOURCE_ORDER.filter((src) => listings.some((l) => l.source === src && l.kind === 'ticket')).map((src) => SOURCE_LABELS[src]),
+          steps: trackOf(s, listings),
           url: listings.some((l) => l.url) ? pickUrl({ kind: 'listed' }, listings) : null,
         }
       }),
   }))
+}
+
+/** 时间线四格。“报批”那格带上批复日期，网页上鼠标停在上面能看到。 */
+function trackOf(show, listings) {
+  const steps = progress(show)
+  const approvedOn = listings.map((l) => l.approval?.date).filter(Boolean).sort().at(-1)
+  if (approvedOn && steps[0].state === 'done') steps[0].title = `${formatDateRange(approvedOn)}批复`
+  return steps
 }
 
 /**
@@ -635,6 +683,7 @@ export function state() {
       untracked: listed.filter((a) => !allowed.some((x) => x.key === a.key)).map((a) => a.key),
       warnings,
       push: pushChannels(),
+      pushPausedAt: store.pushPausedAt(),
       runs: store.recentRuns(6),
       health: SOURCE_ORDER.map((src) => store.getHealth(src))
         .filter((h) => h.lastOkAt != null || h.failRuns > 0)

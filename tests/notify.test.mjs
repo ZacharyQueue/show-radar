@@ -2,7 +2,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DESC_MAX, TITLE_MAX, eventCard, healthText, reminderCard, summaryTexts, weeklyText } from '../src/notify/format.mjs'
+import { DESC_MAX, TITLE_MAX, eventCard, healthText, mixedLabel, reminderCard, showTitle, summaryTexts, weeklyText } from '../src/notify/format.mjs'
 import { createWecom } from '../src/notify/wecom.mjs'
 import { fromBeijing } from '../src/time.mjs'
 import { fakeClient } from './helpers/fake-http.mjs'
@@ -67,6 +67,16 @@ test('开售提醒卡片', () => {
   const card = reminderCard(show, listings)
   assert.equal(card.title, '薛之谦 · 无锡 · 快开售了')
   assert.match(card.description, /17:17 开售（大麦、猫眼）/)
+})
+
+test('音乐节、拼盘演出在演出名前面标出来，提醒卡片也一样', () => {
+  assert.equal(mixedLabel({ isMixed: false, title: '薛之谦巡回演唱会-无锡站' }), null)
+  assert.equal(mixedLabel({ isMixed: true, title: '2026不止音乐节' }), '音乐节')
+  assert.equal(mixedLabel({ isMixed: true, title: '2026【无限可能】超级演唱会' }), '拼盘演出')
+  assert.equal(showTitle({ isMixed: true, title: '橘子湾音乐节' }), '音乐节：橘子湾音乐节')
+  assert.equal(showTitle({ isMixed: true, title: null }), null, '没有演出名不硬凑')
+  const card = reminderCard({ ...show, isMixed: true, title: '橘子湾音乐节' }, listings)
+  assert.match(card.text, /音乐节：橘子湾音乐节/)
 })
 
 test('新关注汇总、健康提醒、周报', () => {

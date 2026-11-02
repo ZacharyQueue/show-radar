@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { evaluateShow, stageLabel, timeline } from '../src/stage.mjs'
+import { evaluateShow, progress, stageLabel, timeline } from '../src/stage.mjs'
 import { fromBeijing } from '../src/time.mjs'
 
 const NOW = fromBeijing(2026, 10, 26, 9, 7)
@@ -159,4 +159,16 @@ test('标题和场馆优先用售票平台的', () => {
   const r = play([{ now: NOW, listings: [approval(), ticket()] }])
   assert.equal(r[0].show.title, '薛之谦“万兽之王”巡回演唱会-无锡站')
   assert.equal(r[0].show.venue, '无锡奥体')
+})
+
+test('网页上的时间线：报批、上架、开售、二开四格，到没到都画', () => {
+  const cells = (show) => progress(show).map((c) => `${c.label}:${c.state}`).join(' ')
+  assert.equal(cells({ stage: 'listed', reached: ['listed'], round: 0 }), '报批:todo 上架:done 开售:todo 二开:todo', '内地演出常常没有报批')
+  assert.equal(cells({ stage: 'sale_pending', reached: ['approved', 'listed', 'sale_pending'], round: 1 }), '报批:done 上架:done 开售:next 二开:todo')
+  assert.equal(cells({ stage: 'onsale', reached: ['listed', 'onsale'], round: 1, everSold: true }), '报批:todo 上架:done 开售:done 二开:todo')
+  assert.equal(cells({ stage: 'resale_pending', reached: ['listed', 'onsale', 'resale_pending'], round: 2, everSold: true }), '报批:todo 上架:done 开售:done 二开:next')
+  assert.equal(cells({ stage: 'onsale', reached: ['listed', 'onsale'], round: 3, everSold: true }), '报批:todo 上架:done 开售:done 三开:done')
+  assert.equal(cells({ stage: 'resale_pending', reached: ['listed'], round: 4, everSold: true }), '报批:todo 上架:done 开售:done 第4轮:next')
+  assert.equal(cells({ stage: 'approved', reached: ['approved'], round: 0 }), '报批:done 上架:todo 开售:todo 二开:todo', '只有批文')
+  assert.equal(cells({ stage: 'waiting', reached: ['listed', 'onsale'], round: 1, everSold: true }), '报批:todo 上架:done 开售:done 二开:todo', '卖过、在等下一轮')
 })

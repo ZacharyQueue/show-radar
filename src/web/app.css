@@ -283,6 +283,11 @@ code {
   display: none;
 }
 
+.runline .paused {
+  color: var(--orange);
+  font-weight: 500;
+}
+
 /* ---------- 按钮和输入 ---------- */
 
 button {
@@ -600,28 +605,7 @@ main {
   color: var(--orange);
 }
 
-/* 阶段：已报批靛蓝，已上架蓝，等开票橙，在卖绿，延期红，别的灰 */
-.badge.stage-approved {
-  background: var(--indigo-fill);
-  color: var(--indigo);
-}
-
-.badge.stage-listed {
-  background: var(--blue-fill);
-  color: var(--blue);
-}
-
-.badge.stage-sale_pending,
-.badge.stage-resale_pending {
-  background: var(--orange-fill);
-  color: var(--orange);
-}
-
-.badge.stage-onsale {
-  background: var(--green-fill);
-  color: var(--green);
-}
-
+/* 时间线之外的状态：延期红，售罄、等下一轮、下架灰 */
 .badge.stage-postponed {
   background: var(--red-fill);
   color: var(--red);
@@ -725,7 +709,8 @@ main {
 /* 有售票页的整行都能点，按下立刻变灰 */
 .show-link {
   display: grid;
-  grid-template-columns: 7.5rem minmax(0, 1fr) auto auto;
+  /* 跨月的日期（11月28日—12月2日）一行放得下 */
+  grid-template-columns: 9rem minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 4px 16px;
   padding: 12px 16px;
@@ -758,28 +743,126 @@ a.show-link:active {
   font-variant-numeric: tabular-nums;
 }
 
+.show-when .date > span {
+  white-space: nowrap;
+}
+
 .show-when .city {
   color: var(--label-2);
   font-size: 0.8125rem;
 }
 
-.show-what .venue {
+.show-what .name {
+  font-weight: 500;
   overflow-wrap: anywhere;
+}
+
+/* 音乐节、拼盘演出：挂在演出名前面，免得和专场混淆 */
+.show-what .kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--indigo-fill);
+  color: var(--indigo);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
+
+.show-what .venue {
+  color: var(--label-2);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.show-what .where {
+  color: var(--label-2);
+  font-size: 0.8125rem;
+}
+
+.show-what .sale {
+  color: var(--orange);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .show-stage {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
-.show-stage .sale {
-  color: var(--orange);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+/* 每场演出的时间线：报批、上架、开售、二开四格。到过的点亮，最近到的那格字加粗；公布了开售时间、还没开的标橙；没到的空着 */
+.track {
+  display: grid;
+  grid-template-columns: repeat(4, 2.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.track li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--label-3);
+  font-size: 0.75rem;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.track li::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--label-3);
+  border-radius: 50%;
+}
+
+/* 和前一格之间的连线，两头让开圆点 */
+.track li + li::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: calc(50% + 7px);
+  width: calc(100% - 14px);
+  height: 1px;
+  background: var(--separator);
+}
+
+.track li.done {
+  color: var(--label-2);
+}
+
+.track li.done::before {
+  border-color: var(--tint-text);
+  background: var(--tint-text);
+}
+
+/* 两头都到过，这段连线才点亮 */
+.track li.done + li.done::after {
+  background: var(--tint-text);
+}
+
+.track li.latest {
+  color: var(--label);
+  font-weight: 600;
+}
+
+.track li.next {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.track li.next::before {
+  border-color: var(--orange);
 }
 
 .go {
@@ -872,6 +955,11 @@ a.show-link:active {
   padding: 14px 16px;
 }
 
+/* “其他通道”上面的分隔线靠它定位，不然会跑到页面最顶上 */
+#push-body > details.more {
+  position: relative;
+}
+
 .push-head {
   display: flex;
   align-items: center;
@@ -884,6 +972,82 @@ a.show-link:active {
 
 .push-head .badge {
   margin-left: auto;
+}
+
+/* 推送总开关：一行，左边写字，右边是开关 */
+.push-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.push-switch h3 {
+  font-size: 1rem;
+}
+
+.push-switch p {
+  margin: 2px 0 0;
+}
+
+/* 照 iOS 的开关画：开着是绿的，圆钮滑到右边；按住时圆钮拉长一点 */
+.switch {
+  position: relative;
+  flex: none;
+  width: 51px;
+  height: 31px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--fill-strong);
+  transition: background-color 200ms var(--ease-out);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow:
+    0 3px 8px rgb(0 0 0 / 0.15),
+    0 1px 1px rgb(0 0 0 / 0.16);
+  transition:
+    transform 200ms var(--ease-out),
+    width 200ms var(--ease-out);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--dot-on);
+}
+
+.switch[aria-checked="true"]::after {
+  transform: translateX(20px);
+}
+
+button.switch:active:not(:disabled) {
+  transform: none;
+}
+
+.switch:active::after {
+  width: 33px;
+}
+
+.switch[aria-checked="true"]:active::after {
+  transform: translateX(14px);
+}
+
+@media (hover: hover) {
+  button.switch:hover:not(:disabled) {
+    background: var(--fill-strong);
+  }
+
+  button.switch[aria-checked="true"]:hover:not(:disabled) {
+    background: var(--dot-on);
+  }
 }
 
 .push-card > p {
@@ -1189,6 +1353,11 @@ details.more[open] > summary::after {
 
   button:active:not(:disabled) {
     transform: none;
+  }
+
+  .switch,
+  .switch::after {
+    transition: none;
   }
 
   .push-form {

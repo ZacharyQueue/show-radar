@@ -1,0 +1,15 @@
+# 在 NAS 或别的装了 Docker 的机器上，到仓库目录里运行：docker compose up -d --build
+# 加艺人、配推送：docker compose exec show-radar node src/cli.mjs setup-push，详见 docs/deploy.md“NAS”。
+services:
+  show-radar:
+    build: .
+    container_name: show-radar
+    restart: unless-stopped
+    # 收到停止信号时，正在跑的一轮先把取到的存下再退出，给它留够时间
+    init: true
+    stop_grace_period: 1m
+    volumes:
+      - data:/data
+
+volumes:
+  data:

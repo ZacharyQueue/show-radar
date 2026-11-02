@@ -222,7 +222,8 @@ function renderTop() {
   else bits.push('只开了网页，不按时抓取')
   const last = state.runs.find((r) => r.finishedAt)
   if (last && state.busy?.kind !== 'run') bits.push(`上一轮 ${ago(last.finishedAt)}`)
-  $('runline').textContent = bits.join(' · ')
+  // 推送暂停了要在哪都看得到，不能只写在下面的“推送”里
+  $('runline').replaceChildren(bits.join(' · '), state.pushPausedAt ? h('span', { class: 'paused' }, ' · 推送已暂停') : '')
   $('runline').dataset.state = state.busy ? 'busy' : state.daemon ? 'on' : 'off'
   const runBtn = $('run-btn')
   runBtn.disabled = Boolean(state.busy) || !state.artists.length
@@ -297,12 +298,46 @@ function showRow(s) {
     h(
       link ? 'a' : 'div',
       link ? { class: 'show-link', href: s.url, target: '_blank', rel: 'noopener noreferrer' } : { class: 'show-link' },
-      h('div', { class: 'show-when' }, h('span', { class: 'date' }, s.dates || '日期未定'), h('span', { class: 'city' }, s.city || '城市未定')),
-      h('div', { class: 'show-what' }, h('span', { class: 'venue' }, s.venue || s.title || ''), s.sources.length ? h('span', { class: 'muted small' }, s.sources.join('、')) : null),
-      h('div', { class: 'show-stage' }, h('span', { class: `badge stage-${s.stage}` }, s.stageLabel), s.nextSale ? h('span', { class: 'sale' }, `${s.nextSale} 开售`) : null),
+      h('div', { class: 'show-when' }, h('span', { class: 'date' }, s.dates ? dateText(s.dates) : '日期未定'), h('span', { class: 'city' }, s.city || '城市未定')),
+      h(
+        'div',
+        { class: 'show-what' },
+        s.title ? h('span', { class: 'name' }, s.mixed ? h('span', { class: 'kind' }, s.mixed) : null, s.title) : null,
+        s.venue ? h('span', { class: 'venue' }, s.venue) : null,
+        whereLine(s),
+      ),
+      h('div', { class: 'show-stage' }, SIDE_STAGES.has(s.stage) ? h('span', { class: `badge stage-${s.stage}` }, s.stageLabel) : null, track(s.steps)),
       link ? h('span', { class: 'go' }, '售票页') : h('span', { class: 'go none' }, '暂无售票页'),
     ),
   )
+}
+
+// 时间线之外的状态，另挂一个小标签
+const SIDE_STAGES = new Set(['soldout', 'waiting', 'postponed', 'offline'])
+
+/** 场馆下面一行：在哪几家平台卖，公布了开售时间的接在后面。 */
+function whereLine(s) {
+  const parts = [s.sources.length ? s.sources.join('、') : null, s.nextSale ? h('span', { class: 'sale' }, `${s.nextSale} 开售`) : null].filter(Boolean)
+  if (!parts.length) return null
+  return h('span', { class: 'where' }, ...parts.flatMap((p, i) => (i ? [' · ', p] : [p])))
+}
+
+/** 报批、上架、开售、二开四格。到过的点亮，最近到的那格字加粗，公布了时间还没开的标橙。 */
+function track(steps) {
+  const latest = steps.map((st) => st.state).lastIndexOf('done')
+  const said = { done: '到过', next: '待开', todo: '还没到' }
+  return h(
+    'ol',
+    { class: 'track' },
+    steps.map((st, i) => h('li', { class: i === latest ? `${st.state} latest` : st.state, title: st.title ?? null }, st.label, h('span', { class: 'sr-only' }, `，${said[st.state]}`))),
+  )
+}
+
+/** 放不下一行时只在“—”后面换行，不把“2027年1月1日”拆成两半。 */
+function dateText(text) {
+  const i = text.indexOf('—')
+  if (i < 0) return text
+  return [h('span', null, text.slice(0, i + 1)), h('wbr'), h('span', null, text.slice(i + 1))]
 }
 
 function renderArtists() {
@@ -356,11 +391,43 @@ function renderPush() {
   const ready = state.push.filter((c) => c.state === 'ready')
   $('push-count').textContent = ready.length ? `在用：${ready.map((c) => c.name).join('、')}` : '还没配'
   $('push-body').replaceChildren(
+    pushSwitch(),
     ...main,
     rest.length
       ? h('details', { class: 'more' }, h('summary', null, `其他通道（${rest.map(([c]) => c.name).join('、')}）`), ...rest.map(([, card]) => card))
       : null,
   )
+}
+
+/** 推送总开关。关掉就暂停推送，照常抓取。 */
+function pushSwitch() {
+  const on = !state.pushPausedAt
+  return h(
+    'div',
+    { class: 'push-switch' },
+    h('div', null, h('h3', null, '允许推送'), on ? null : h('p', { class: 'muted small' }, `${stamp(state.pushPausedAt)} 起暂停，照常抓取`)),
+    h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': String(on), 'aria-label': '允许推送', onclick: togglePush }),
+  )
+}
+
+async function togglePush() {
+  const pausing = !state.pushPausedAt
+  // 按下就换过去，不等服务端回话；出错了以服务端为准
+  state.pushPausedAt = pausing ? Date.now() : null
+  renderTop()
+  renderPush()
+  try {
+    if (pausing) {
+      await api('POST', '/api/pause')
+      toast('推送暂停了，照常抓取。')
+    } else {
+      const { delivered } = await api('DELETE', '/api/pause')
+      toast(delivered == null ? '推送恢复了。正有一轮在跑，攒下的消息它抓完就发。' : delivered ? `推送恢复了，补发了 ${delivered} 条。` : '推送恢复了。')
+    }
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+  await load()
 }
 
 function pushCard(c) {

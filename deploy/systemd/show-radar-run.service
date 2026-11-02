@@ -1,4 +1,4 @@
-# 演出雷达：跑一轮抓取（docs/deploy.md）。由 show-radar-run.timer 每 6 小时起一次，跑完退出。
+# 演出雷达：跑一轮抓取（docs/deploy.md）。由 show-radar-run.timer 每天起两次，跑完退出。
 # @NODE@ 由 install.sh 换成这台服务器上 node 的路径。
 # 用专门的系统用户 showradar，除了数据目录 /opt/show-radar/shared/runtime，别的目录都是只读的。
 [Unit]

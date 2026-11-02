@@ -271,6 +271,25 @@ export function timeline(show) {
   return steps
 }
 
+/**
+ * 网页上每场演出的时间线：报批、上架、开售、二开四格，到没到都画出来。
+ * done 是到过的，next 是公布了开售时间、还没开的，todo 是还没到。内地演出多由区县审批、不公示，“报批”常常空着。
+ * 第三轮起最后一格写“三开”“第4轮”。
+ */
+export function progress(show) {
+  const reached = new Set(show.reached ?? [])
+  const round = show.round ?? 0
+  return [
+    { label: '报批', state: reached.has('approved') ? 'done' : 'todo' },
+    { label: '上架', state: reached.has('listed') ? 'done' : 'todo' },
+    { label: '开售', state: show.everSold ? 'done' : show.stage === 'sale_pending' ? 'next' : 'todo' },
+    {
+      label: round <= 2 ? '二开' : round === 3 ? '三开' : `第${round}轮`,
+      state: round < 2 ? 'todo' : show.stage === 'resale_pending' ? 'next' : 'done',
+    },
+  ]
+}
+
 function sourcesWithTime(listings, t) {
   return orderSources(listings.filter((l) => (l.saleTimes ?? []).some((x) => toMinute(x) === t)).map((l) => l.source))
 }

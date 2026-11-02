@@ -7,6 +7,8 @@ import { digestMessage, reminderCard } from './notify/format.mjs'
 export const REMIND_WINDOW_MS = 40 * 60_000
 
 export async function runReminders({ store, notifier, now = Date.now, log = console.log }) {
+  // 暂停推送时不提醒，也不记成提醒过：恢复时还在 40 分钟以内的照常提醒
+  if (store.pushPausedAt() != null) return 0
   const t = now()
   const due = store.dueReminders(t, REMIND_WINDOW_MS)
   if (!due.length) return 0

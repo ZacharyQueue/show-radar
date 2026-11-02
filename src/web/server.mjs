@@ -163,6 +163,8 @@ async function route(req, url, ctx) {
     return { body: result }
   }
   if (is('DELETE', 'push', '*')) return { body: app.removePush(parts[1]) }
+  if (is('POST', 'pause')) return { body: app.pausePush() }
+  if (is('DELETE', 'pause')) return { body: await app.resumePush({ log: ctx.log }) }
   if (is('POST', 'run')) {
     if (app.busyState()) throw new AppError(app.busyState().kind === 'run' ? '正在抓一轮，抓完会自动刷新。' : '正在检查各平台，查完再抓。')
     // 一轮要几分钟到二十几分钟，不等它：网页看 state 里的 busy 知道什么时候抓完

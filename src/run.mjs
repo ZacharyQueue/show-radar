@@ -168,6 +168,8 @@ export async function runRound({
 
   // 3. 健康检查：连着几轮取不到就提醒，恢复了再说一声
   const outbox = readOutbox(store)
+  // 暂停推送时不报平台的毛病，也不记成报过：恢复时还没好的，下一轮照常报
+  const paused = store.pushPausedAt() != null
   const health = []
   for (const r of results) {
     if (r.skipped) continue
@@ -178,12 +180,12 @@ export async function runRound({
     if (failed) {
       h.failRuns += 1
       h.lastError = describeError(r.error ?? r.lastError)
-      if (h.failRuns >= HEALTH_ALERT_RUNS && !h.alerted) {
+      if (h.failRuns >= HEALTH_ALERT_RUNS && !h.alerted && !paused) {
         outbox.push(healthText({ source: r.adapter.name, status: 'down', reason: h.lastError, failRuns: h.failRuns }))
         h.alerted = true
       }
     } else {
-      if (h.alerted) outbox.push(healthText({ source: r.adapter.name, status: 'up' }))
+      if (h.alerted && !paused) outbox.push(healthText({ source: r.adapter.name, status: 'up' }))
       h.failRuns = 0
       h.alerted = false
       h.lastError = null
@@ -219,13 +221,16 @@ export async function runRound({
   if (p.weekday === 1 && p.hour >= 9 && store.kv.get('weekly.lastWeek') !== weekKey) {
     const allActive = store.activeArtists()
     const tracked = allActive.flatMap((a) => store.showsForArtist(a.key)).filter((s) => s.stage && !['ended', 'offline'].includes(s.stage))
-    outbox.push(weeklyText({ artistCount: allActive.length, showCount: tracked.length, pushedCount: store.countEventsSince(t - 7 * DAY_MS), health: allHealth(store, adapters) }))
+    // 暂停期间的周报不发也不补
+    if (!paused) outbox.push(weeklyText({ artistCount: allActive.length, showCount: tracked.length, pushedCount: store.countEventsSince(t - 7 * DAY_MS), health: allHealth(store, adapters) }))
     store.kv.set('weekly.lastWeek', weekKey)
   }
   writeOutbox(store, outbox)
 
-  // 6. 推送
-  const pushed = await deliver({ store, notifier, now, log })
+  // 6. 推送。发之前才看开关：抓到一半恢复的，这一轮照常发
+  let pushed = 0
+  if (store.pushPausedAt() != null) log('推送暂停中：这一轮的消息先攒着，恢复后补发还有用的。')
+  else pushed = await deliver({ store, notifier, now, log })
 
   const stats = {
     sources: Object.fromEntries(
@@ -349,9 +354,9 @@ async function fetchSource({ adapter, artists, store, now, log, forceSlow, clien
  * 发消息，返回发出去的条数。
  * 逐条发的通道（企业微信、WxPusher、Bark）：先发文字（汇总、提醒、周报），再发卡片，一轮最多 15 张，多的合成一条清单。
  * 只收合成一条的通道（Server酱、邮件）：这一轮要发的全部合成一条。
- * 一条消息只要有一种通道发出去了就算推过；都没发出去的留到下一轮。
+ * 一条消息只要有一种通道发出去了就算推过；都没发出去的留到下一轮。恢复推送时也用它补发。
  */
-async function deliver({ store, notifier, now, log }) {
+export async function deliver({ store, notifier, now, log }) {
   const outbox = readOutbox(store)
   const queue = latestPending(store, now)
   if (!outbox.length && !queue.length) return 0

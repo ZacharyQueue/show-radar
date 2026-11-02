@@ -1,11 +1,12 @@
 # 部署说明
 
-演出雷达要一台在中国大陆网络里、一直开着的机器。按你手上有什么，选一种：
+演出雷达要一台在中国大陆网络里、一直开着的机器。按手上有什么，选一种：
 
-- 自己的电脑、能装 Node 的 NAS：用 `start` 或常驻模式 `daemon`，见“自己的电脑和 NAS”。
+- 自己的电脑：用 `start`。想开机自动运行、不让电脑睡着，见“自己的电脑”。
+- 一直开着的 NAS：用 Docker，见“NAS”。
 - Linux 云服务器：用安装脚本装成 systemd 定时器，见“Linux 服务器”。
 
-两种都要先装 Node.js 22.13 或更新的版本。
+不用 Docker 的，都要先装 Node.js 22.13 或更新的版本。
 
 ## 装 Node.js
 
@@ -26,7 +27,7 @@ node -v
 
 要 v22.13 或更新（23 要 23.4 以上）。版本太旧，运行会报找不到 `node:sqlite`。
 
-## 自己的电脑和 NAS
+## 自己的电脑
 
 1. 下载这个仓库，解压，打开终端进到仓库目录。
 2. 启动：
@@ -35,24 +36,142 @@ node -v
    node src/cli.mjs start
    ```
 
-3. 它会用浏览器打开本机网页。照 README 的“几分钟跑起来”，在网页里加艺人、配推送，再点“现在抓一轮”。
-
-没有桌面的 NAS 用 `node src/cli.mjs daemon`，艺人和推送用命令行配，见 README 的“用命令行”。
+3. 它会用浏览器打开本机网页。照 README 的“快速开始”，在网页里加艺人、配推送，再点“现在抓一轮”。
 
 终端窗口别关。要停就按 Ctrl+C：正在跑的那一轮会先把已经取到的存下再退出。艺人清单、状态库、密钥都在仓库下的 `.runtime/` 里，重新启动会接着跑。
 
-几点要注意：
+电脑睡眠、关机时不抓取，开售提醒也会晚。想让它一直跑，下面两件事都做。
 
-- **睡眠和关机。** 电脑睡眠、关机时不抓取，开售提醒也会晚。macOS 上可以用 `caffeinate -i node src/cli.mjs start`，跑着的时候不让电脑睡眠。
-- **开机自动跑。** Windows 用“任务计划程序”，触发器选“登录时”，操作填 `node` 和 `src\cli.mjs daemon`，起始位置填仓库目录。要看网页时，另开一个终端运行 `node src\cli.mjs web`。
-- **NAS。** 能装 Node 22.13 以上的 NAS 照上面做。Docker 的写法还没在真机上验证过，暂不提供。
-- **更新。** 下载新版本解压到新目录，把旧目录里的 `.runtime/` 整个拷过去。用 `git clone` 的，直接 `git pull`：`.runtime/` 不在 Git 里。
+### 不让电脑睡着
+
+- macOS：手动启动时在前面加 `caffeinate -i`，跑着的时候电脑不会自己睡着。用下面的开机自启就不用加，已经带上了。合上笔记本盖子还是会睡。
+
+  ```bash
+  caffeinate -i node src/cli.mjs start
+  ```
+
+- Windows：打开“设置 → 系统 → 电源”，把接通电源时的“睡眠”改成“从不”。Windows 11 在“电源和电池 → 屏幕和睡眠”里，Windows 10 叫“电源和睡眠”。
+
+### 开机自动运行
+
+先用 `start` 把艺人和推送配好，再设自启。自启跑的是常驻模式 `daemon`，不带网页。要看网页，另开一个终端运行 `node src/cli.mjs web`，不要再开 `start`。
+
+#### macOS
+
+在终端里进到仓库目录，把下面整段粘贴进去运行。它会加一个登录后自动运行的后台任务，node 和仓库的路径自动填好：
+
+```bash
+mkdir -p .runtime ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/local.show-radar.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.show-radar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-i</string>
+    <string>$(command -v node)</string>
+    <string>--no-warnings</string>
+    <string>$PWD/src/cli.mjs</string>
+    <string>daemon</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$PWD</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>$PWD/.runtime/daemon.log</string>
+  <key>StandardErrorPath</key>
+  <string>$PWD/.runtime/daemon.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.show-radar.plist
+```
+
+- 系统可能弹出“已添加后台项目”的提示，这是正常的。
+- 看它在做什么：`tail -f .runtime/daemon.log`。
+- 任务里写的是绝对路径。仓库目录挪了位置，先停掉，再到新目录重新设一遍。
+- 后台任务读不到终端里设的 `SHOW_RADAR_LOCAL_ADDRESS`。开着代理或加速器的，把全局模式、TUN 模式关掉最省事。
+
+停掉并去掉自启：
+
+```bash
+launchctl bootout gui/$(id -u)/local.show-radar
+rm ~/Library/LaunchAgents/local.show-radar.plist
+```
+
+#### Windows
+
+1. 把仓库放在不含中文和空格的路径里，比如 `D:\show-radar`。
+2. 按 Win+R，输入 `shell:startup`，回车，打开“启动”文件夹。
+3. 在里面新建文本文件，用记事本写入下面三行，路径换成你的仓库目录。另存为 `show-radar.cmd`，保存类型选“所有文件”：
+
+   ```bat
+   @echo off
+   cd /d "D:\show-radar"
+   start "show-radar" /min node --no-warnings src\cli.mjs daemon
+   ```
+
+4. 双击这个文件试一次。任务栏上多出一个最小化的窗口，就是它在跑。以后每次登录都会自动启动。
+
+关掉那个窗口就停了。不想再自启，把 `show-radar.cmd` 从“启动”文件夹里删掉。
+
+不用“任务计划程序”：它默认勾着“任务运行超过 3 天就停止”，常驻的程序会被它停掉。
+
+### 更新
+
+下载新版本解压到新目录，把旧目录里的 `.runtime/` 整个拷过去。用 `git clone` 的，直接 `git pull`：`.runtime/` 不在 Git 里。设了开机自启、又换了目录的，按上面的步骤重新设一遍。
 
 本机网页怎么用，见 README 的“本机网页”。
 
+## NAS
+
+一直开着的 NAS 用 Docker 跑最省事。容器里跑常驻模式 `daemon`，不开网页：网页只监听 `127.0.0.1`，容器外连不进来。加艺人、配推送都用命令行。
+
+Docker 的写法照官方 Node 镜像写的，还没在 NAS 真机上跑过。遇到问题请提 issue。
+
+1. 把仓库下载到 NAS 上，用 SSH 登录 NAS，进到仓库目录。有的 NAS 要在下面的命令前加 `sudo`，老版本的 Docker 把 `docker compose` 写成 `docker-compose`。
+2. 构建并启动：
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+   拉不下 `node:22-alpine` 镜像时，先在 NAS 的 Docker 设置里配镜像加速。或者在 `compose.yaml` 的 `build` 下面加上 `args`，把 `NODE_IMAGE` 换成国内镜像站上的 `node:22-alpine`。
+
+3. 加艺人、配推送，再检查各平台通不通：
+
+   ```bash
+   docker compose exec show-radar node src/cli.mjs follow 告五人、潘云安
+   docker compose exec show-radar node src/cli.mjs setup-push
+   docker compose exec show-radar node src/cli.mjs check
+   ```
+
+4. 看它在做什么：
+
+   ```bash
+   docker compose logs -f
+   ```
+
+- 别的命令都一样，前面加 `docker compose exec show-radar`。比如看在跟踪哪些演出：`docker compose exec show-radar node src/cli.mjs status`。
+- 艺人清单、状态库、推送密钥都存在 Docker 卷里，重建镜像、重启容器都不丢。
+- 容器设了自动重启，NAS 重启以后会自己跑起来。
+- 更新：换上新代码，再运行一次 `docker compose up -d --build`。
+
+不用 Docker 的 NAS，能装 Node 22.13 以上的，照“自己的电脑”的做法运行 `node src/cli.mjs daemon`。
+
 ## Linux 服务器
 
-安装脚本建一个系统用户 `showradar`，代码放在 `/opt/show-radar`，装两个 systemd 定时器：抓取每 6 小时一轮，开售提醒每 10 分钟一次。定时器跑的程序不监听端口。
+安装脚本建一个系统用户 `showradar`，代码放在 `/opt/show-radar`，装两个 systemd 定时器：抓取每天 9:07、21:07 各一轮，开售提醒每 10 分钟一次。定时器跑的程序不监听端口。
 
 1. 用 root 登录服务器，下载这个仓库，进到仓库目录。
 2. 打发布包，再安装：
