@@ -1,16 +1,30 @@
 // 推送：按 secrets.env 里填了哪些密钥，把几个通道合成一个发送器。run.mjs 和 remind.mjs 只认这里的接口：
 //   single、send(message)        有逐条发的通道时 single 为真，send 只发给这些通道
-//   batch、sendDigest(message)   有按条数计费的通道（Server酱）时 batch 为真，sendDigest 只发给这些通道，
+//   batch、sendDigest(message)   有只收合成一条的通道（Server酱、邮件）时 batch 为真，sendDigest 只发给这些通道，
 //                                消息先用 digestMessage 合成一条
 //   channels                     各通道，test-push 逐个试用
 // 两种通道各发各的：逐条的照样一张张收卡片，合成的那条不会挤掉逐条通道的消息。
 
 import { createBark, createServerChan, createWxPusher } from './channels.mjs'
+import { createEmail, isEmail, smtpHostFor } from './email.mjs'
 import { createWecom } from './wecom.mjs'
 
-/** 每个通道要哪几个密钥。全填了才算配好；企业微信缺接收人另外报出来。 */
+/** 每个通道要哪几个密钥。全填了、check 也没挑出毛病才算配好。 */
 export const CHANNELS = [
   { id: 'serverchan', name: 'Server酱', keys: ['SERVERCHAN_SENDKEY'], make: (s) => createServerChan({ sendKey: s.SERVERCHAN_SENDKEY }) },
+  {
+    id: 'email',
+    name: '邮件',
+    keys: ['SMTP_USER', 'SMTP_PASS'],
+    check: (s) => {
+      if (!isEmail(s.SMTP_USER)) return `SMTP_USER 要写完整的邮箱地址，现在是“${s.SMTP_USER}”`
+      if (s.MAIL_TO && !isEmail(s.MAIL_TO)) return `MAIL_TO 要写完整的邮箱地址，现在是“${s.MAIL_TO}”`
+      if (!s.SMTP_HOST && !smtpHostFor(s.SMTP_USER)) return `认不出 ${s.SMTP_USER} 的发信服务器，在 SMTP_HOST 里写上`
+      return null
+    },
+    // 认得出的邮箱一律用它自己的发信服务器，不看 SMTP_HOST：QQ 邮箱的授权码只该交给 smtp.qq.com
+    make: (s) => createEmail({ user: s.SMTP_USER, pass: s.SMTP_PASS, to: s.MAIL_TO || s.SMTP_USER, host: smtpHostFor(s.SMTP_USER) || s.SMTP_HOST }),
+  },
   { id: 'wxpusher', name: 'WxPusher', keys: ['WXPUSHER_SPT'], make: (s) => createWxPusher({ spt: s.WXPUSHER_SPT }) },
   { id: 'bark', name: 'Bark', keys: ['BARK_KEY'], make: (s) => createBark({ key: s.BARK_KEY, server: s.BARK_SERVER || undefined }) },
   {
@@ -21,8 +35,14 @@ export const CHANNELS = [
   },
 ]
 
-/** 所有通道要用的密钥名，loadSecrets 允许环境变量覆盖这些。 */
-export const SECRET_KEYS = [...new Set([...CHANNELS.flatMap((c) => c.keys), 'BARK_SERVER'])]
+/** 所有通道要用的密钥名。 */
+export const SECRET_KEYS = [...new Set([...CHANNELS.flatMap((c) => c.keys), 'BARK_SERVER', 'MAIL_TO', 'SMTP_HOST'])]
+
+/**
+ * loadSecrets 允许同名环境变量覆盖的那些。邮件的几项不让覆盖：SMTP_HOST 这类名字别的程序也常用，
+ * 环境里碰巧有一个，授权码就会被送到别人的发信服务器上去。
+ */
+export const ENV_OVERRIDABLE_KEYS = SECRET_KEYS.filter((k) => !['SMTP_USER', 'SMTP_PASS', 'MAIL_TO', 'SMTP_HOST'].includes(k))
 
 /**
  * 看填了哪些通道。返回 { ready: [配好的通道], partial: [只填了一部分的通道], problems: [给人看的话] }。
@@ -34,10 +54,14 @@ export function inspectChannels(secrets) {
   const problems = []
   for (const c of CHANNELS) {
     const filled = c.keys.filter((k) => secrets[k])
-    if (filled.length === c.keys.length) ready.push(c)
-    else if (filled.length) {
+    const problem = filled.length === c.keys.length ? c.check?.(secrets) : null
+    if (filled.length === c.keys.length && !problem) ready.push(c)
+    else if (problem) {
       partial.push(c)
-      problems.push(`${c.name}没配全，还缺 ${c.keys.filter((k) => !secrets[k]).join('、')}。运行 setup-push 补全，或者在里面去掉它`)
+      problems.push(`${c.name}：${problem}`)
+    } else if (filled.length) {
+      partial.push(c)
+      problems.push(`${c.name}没配全，还缺 ${c.keys.filter((k) => !secrets[k]).join('、')}，重新配一遍或者去掉它`)
     }
   }
   return { ready, partial, problems }
@@ -83,7 +107,7 @@ export function createUnconfiguredNotifier(print = console.log) {
     single: true,
     batch: false,
     async send(m) {
-      if (!told) print('还没配推送：消息先打印在这里，留在状态库里，运行 setup-push 配好以后再发。')
+      if (!told) print('还没配推送：要推的消息先列在这里，配好推送以后再发。')
       told = true
       await shown.send(m)
       const err = new Error('还没配推送，消息留到配好以后再发')

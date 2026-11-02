@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MAX_ALIASES, MAX_ARTISTS, followArtist, limitArtists, templateHint, unfollowArtist } from '../src/config.mjs'
-import { MIN_CHECK_GAP_MS, MIN_FETCH_GAP_MS } from '../src/fetch-log.mjs'
+import { MIN_CHECK_GAP_MS, MIN_FETCH_GAP_MS, fetchKey, openFetchLog } from '../src/fetch-log.mjs'
 import { MIN_GAP_FLOOR_MS, PUSH_SITES, SOURCE_SITES, createClient, createSourceClient } from '../src/http.mjs'
 import { withLock } from '../src/lock.mjs'
 import { MAX_JITTER_MS, nextRoundAt, planNextRound } from '../src/schedule.mjs'
@@ -56,14 +56,14 @@ test(`最多关注 ${MAX_ARTISTS} 位艺人，每位最多 ${MAX_ALIASES} 个别
   const { artists, warnings } = limitArtists(many)
   assert.equal(artists.length, MAX_ARTISTS)
   assert.equal(artists[0].aliases.length, MAX_ALIASES)
-  assert.match(warnings.join('\n'), /这几位没有跟踪：艺人50、艺人51/)
+  assert.match(warnings.join('\n'), /这几位没在跟踪：艺人50、艺人51/)
 
   // 超出时先留已经在跟踪的，截掉新加的：新人手写在最上面，也不会把在跟踪的人停掉
   const withNewcomer = [{ key: '新人', aliases: [] }, ...many.slice(0, MAX_ARTISTS)]
   const tracked = new Set(many.slice(0, MAX_ARTISTS).map((a) => a.key))
   const kept = limitArtists(withNewcomer, tracked)
   assert.ok(!kept.artists.some((a) => a.key === '新人'))
-  assert.match(kept.warnings[0], /这几位没有跟踪：新人/)
+  assert.match(kept.warnings[0], /这几位没在跟踪：新人/)
 })
 
 test('别名已经属于另一位艺人时不新加，主名换个写法并进原来那一行', () => {
@@ -212,7 +212,7 @@ function stripComments(source) {
   return code(false)
 }
 
-test('代码里只许出现白名单里的地址和接口，不碰下单、库存、登录', async () => {
+test('代码里只许出现白名单里的地址和接口，不碰下单、库存、登录', () => {
   const ALLOWED_HOSTS = new Set([
     // 数据源
     'm.damai.cn',
@@ -220,6 +220,7 @@ test('代码里只许出现白名单里的地址和接口，不碰下单、库�
     'show.maoyan.com',
     'm.dianping.com',
     'www.showstart.com',
+    'zwfw.mct.gov.cn',
     // 推送通道
     'qyapi.weixin.qq.com',
     'sctapi.ftqq.com',
@@ -228,16 +229,10 @@ test('代码里只许出现白名单里的地址和接口，不碰下单、库�
     'api.day.app',
   ])
   // 推送通道里拼出来的地址：Server酱³ 的地址里有用户编号，只认这一处
-  const DYNAMIC_OK = new Set(['notify/channels.mjs:https://${sc3[1]}.push.ft07.com'])
+  // 本机网页拼自己的地址，只指向 127.0.0.1、localhost，也只认那一处
+  const DYNAMIC_OK = new Set(['notify/channels.mjs:https://${sc3[1]}.push.ft07.com', 'web/server.mjs:http://${host}'])
   const ALLOWED_MTOP = new Set(['mtop.damai.wireless.search.search', 'mtop.damai.item.detail.getdetail'])
   const FORBIDDEN_PATH = /order|buy|cart|pay|login|passport|captcha|subpage|sku|stock/i
-  // 可选的数据源适配器自己声明域名（ENDPOINT_HOSTS），只对它自己那个文件放行
-  const ownHosts = {}
-  for (const f of fs.readdirSync(path.join(SRC, 'sources'))) {
-    if (!f.endsWith('.mjs') || f === 'index.mjs') continue
-    const mod = await import(new URL(`../src/sources/${f}`, import.meta.url))
-    ownHosts[path.join('sources', f)] = new Set(mod.ENDPOINT_HOSTS ?? [])
-  }
   const files = fs.readdirSync(SRC, { recursive: true }).filter((f) => f.endsWith('.mjs'))
   const bad = []
   let seen = 0
@@ -245,7 +240,7 @@ test('代码里只许出现白名单里的地址和接口，不碰下单、库�
     const code = stripComments(fs.readFileSync(path.join(SRC, f), 'utf8'))
     for (const m of code.matchAll(/https?:\/\/([a-zA-Z0-9.-]+)([^\s'"`)]*)/g)) {
       seen++
-      if (!ALLOWED_HOSTS.has(m[1]) && !ownHosts[f]?.has(m[1])) bad.push(`${f}：没列进白名单的地址 ${m[0]}`)
+      if (!ALLOWED_HOSTS.has(m[1])) bad.push(`${f}：没列进白名单的地址 ${m[0]}`)
       else if (FORBIDDEN_PATH.test(m[2])) bad.push(`${f}：像下单、库存、登录的地址 ${m[0]}`)
     }
     // 用模板或加号拼出来的域名，静态看不出是哪里，一律报出来，除非列进 DYNAMIC_OK
@@ -294,19 +289,23 @@ test('请求客户端在发出去之前查网址：域名白名单、下单库�
   await client('damai').request({ url: 'https://mtop.damai.cn/h5/mtop.damai.item.detail.getdetail/1.0/?data=1' })
   await client('maoyan').request({ url: 'https://m.dianping.com/myshow/ajax/performances/0;st=0;k=New%20Order;p=1' })
   await client('bark').request({ url: 'https://bark.my-home.example/push' })
-  await client('gov', { hosts: ['gov.example'] }).request({ url: 'https://gov.example/q' })
-  await assert.rejects(client('gov', { hosts: ['gov.example'] }).request({ url: 'https://other.example/q' }), /不许请求的地址/)
-  assert.equal(sent.length, 4, '被拦下的一个都没发出去')
+  await client('gov').request({ method: 'POST', url: 'https://zwfw.mct.gov.cn/portal/swychd' })
+  await assert.rejects(client('gov').request({ url: 'https://other.example/q' }), /不许请求的地址/)
+  // hosts 只给测试用，放行的也只是写进去的那几个
+  await client('test', { hosts: ['test.example'] }).request({ url: 'https://test.example/q' })
+  await assert.rejects(client('test', { hosts: ['test.example'] }).request({ url: 'https://other.example/q' }), /不许请求的地址/)
+  assert.equal(sent.length, 5, '被拦下的一个都没发出去')
 })
 
 test('每个数据源的请求都在白名单检查之下，clientOptions 塞不进测试用的口子', async () => {
   const { ADAPTERS } = await import('../src/sources/index.mjs')
   for (const a of ADAPTERS) {
     assert.ok(!PUSH_SITES.has(a.clientOptions.site), `${a.name} 用了推送通道的名字`)
-    assert.ok(SOURCE_SITES.has(a.clientOptions.site) || a.clientOptions.hosts?.length, `${a.name} 的请求没有白名单检查`)
+    assert.ok(SOURCE_SITES.has(a.clientOptions.site), `${a.name} 的站点名不在 http.mjs 的名单里`)
     assert.doesNotThrow(() => createSourceClient(a.clientOptions))
   }
-  assert.throws(() => createSourceClient({ site: 'bark', hosts: ['x.example'] }), /推送通道的名字/)
+  assert.throws(() => createSourceClient({ site: 'bark' }), /推送通道的名字/)
+  assert.throws(() => createSourceClient({ site: 'gov', hosts: ['x.example'] }), /不认这些项：hosts/)
   assert.throws(() => createSourceClient({ site: 'damai', sleep: async () => {} }), /不认这些项：sleep/)
 })
 
@@ -389,14 +388,16 @@ test('setup-push 用管道一次喂几行也不丢；输入提前结束说清没
   const run = (input) =>
     spawnSync(process.execPath, ['--no-warnings', path.join(SRC, 'cli.mjs'), 'setup-push'], { input, encoding: 'utf8', env: { ...process.env, SHOW_RADAR_RUNTIME: rt } })
   fs.writeFileSync(path.join(rt, 'secrets.env'), 'BARK_KEY=k1\nWECOM_CORP_ID=ww1\n')
-  const removed = run('5\n2\n')
+  const removed = run('6\n2\n')
   assert.match(removed.stdout, /去掉了 企业微信。还在用的：Bark/)
   assert.doesNotMatch(fs.readFileSync(path.join(rt, 'secrets.env'), 'utf8'), /WECOM/)
   const cut = run('1\n')
   assert.match(cut.stdout, /输入提前结束，没保存/)
   assert.equal(cut.status, 1)
   const bad = run('1\nabc\n')
-  assert.match(bad.stdout, /SendKey 应该是/)
+  assert.match(bad.stdout, /邮箱地址的格式不对/)
+  const badKey = run('2\nabc\n')
+  assert.match(badKey.stdout, /SendKey 应该是/)
 })
 
 test('常驻模式：一天只取一次的数据源这一轮取到了，别的数据源全被跳过时照样补轮', () => {
@@ -408,4 +409,25 @@ test('常驻模式：一天只取一次的数据源这一轮取到了，别的�
   ]
   const plan = planNextRound(at(9, 8), sources, { regular: at(9, 7) }, () => 0)
   assert.equal(plan.next, at(9, 31))
+})
+
+test('取数记录按归一的名字记：去掉 Foo 再关注 foo，1 小时内照样不再取', () => {
+  assert.equal(fetchKey('damai', 'Foo Band'), fetchKey('damai', 'foo'))
+  assert.equal(fetchKey('showstart', '回春丹乐队'), fetchKey('showstart', '回春丹'))
+  assert.notEqual(fetchKey('damai', '告五人'), fetchKey('maoyan', '告五人'))
+  // 以前按原样记的键，读进来时改成归一的，撞到一起的留最近的那次
+  const file = path.join(tmp(), 'fetch-log.json')
+  fs.writeFileSync(file, JSON.stringify({ 'damai\u0000Foo': 100, 'damai\u0000foo': 200, 'check.damai': 300 }))
+  const log = openFetchLog(file)
+  assert.equal(log.get(fetchKey('damai', 'FOO')), 200)
+  assert.equal(log.get('check.damai'), 300)
+  // 撞到一起的两条里有一条在将来（时钟拨过）：留真实的那次，不然会被当成没取过
+  const now = Date.now()
+  fs.writeFileSync(file, JSON.stringify({ 'damai\u0000Foo': now + 5 * 3600_000, 'damai\u0000foo': now - 600_000 }))
+  assert.equal(openFetchLog(file).get(fetchKey('damai', 'foo')), now - 600_000)
+  // 已经换成新键的，再打开不再换：归一不是每次都得到同一个结果，“XX Band乐队”换两次就成了“xx”
+  const log2 = openFetchLog(file)
+  log2.set(fetchKey('damai', 'XX Band乐队'), now)
+  assert.equal(openFetchLog(file).get(fetchKey('damai', 'XX Band乐队')), now)
+  assert.equal(openFetchLog(file).get(fetchKey('damai', 'XX')), null)
 })

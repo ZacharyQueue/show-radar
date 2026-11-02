@@ -8,6 +8,7 @@
     "node": ">=22.13 <23 || >=23.4"
   },
   "scripts": {
+    "start": "node --no-warnings src/cli.mjs start",
     "test": "node --no-warnings --test --test-concurrency=2 \"tests/**/*.test.mjs\"",
     "run": "node --no-warnings src/cli.mjs run",
     "check": "node --no-warnings src/cli.mjs check",

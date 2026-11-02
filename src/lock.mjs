@@ -30,7 +30,11 @@ export async function withLock(file, fn, { waitMs = 45 * 60_000, pollMs = 3000, 
       fs.rmSync(file, { force: true })
       continue
     }
-    if (now() - start >= waitMs) throw new Error(`等了 ${Math.round(waitMs / 60_000)} 分钟，上一轮还没跑完：${holder(file)}。先看看它在做什么（服务器上运行 systemctl status show-radar-run），不要删锁`)
+    if (now() - start >= waitMs) {
+      const err = new Error(`等了 ${Math.round(waitMs / 60_000)} 分钟，上一轮还没跑完：${holder(file)}。先看看它在做什么（服务器上运行 systemctl status show-radar-run），不要删锁`)
+      err.code = 'BUSY'
+      throw err
+    }
     if (!told) {
       log('上一轮还在跑，等它跑完再开始。')
       told = true

@@ -11,8 +11,13 @@ export function normalizeName(text) {
 
 /** 两个名字归一以后是否相同。末尾的“乐队”“乐团”“band”不算：秀动把回春丹录成“回春丹乐队”。 */
 export function sameName(a, b) {
-  const x = stripBandSuffix(normalizeName(a))
-  return x !== '' && x === stripBandSuffix(normalizeName(b))
+  const x = nameKey(a)
+  return x !== '' && x === nameKey(b)
+}
+
+/** 名字归一以后、去掉末尾“乐队”的样子。sameName 认作同一位的，这里得到同一个值。 */
+export function nameKey(text) {
+  return stripBandSuffix(normalizeName(text))
 }
 
 function stripBandSuffix(name) {

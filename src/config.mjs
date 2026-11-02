@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SECRET_KEYS } from './notify/index.mjs'
+import { ENV_OVERRIDABLE_KEYS } from './notify/index.mjs'
 import { sameName } from './text.mjs'
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -67,6 +67,24 @@ function ensureArtistsFile(file) {
  */
 export function limitArtists(list, tracked = new Set()) {
   const warnings = []
+  // 手改的清单里，两行的名字或别名撞上（“Foo”和“foo”、“回春丹”和“回春丹乐队”）算同一位艺人，只留一行：
+  // 两行一起跟踪，同一场演出会推两遍；取数记录按归一的名字记，其中一行还永远轮不到。
+  // 留哪一行和超出上限时一样：已经在跟踪的优先，免得手改一下就把在跟踪的人停掉；都没在跟踪就留前面那行
+  const names = (a) => [a.key, ...a.aliases]
+  const collide = (a, b) => names(a).some((n) => names(b).some((m) => sameName(n, m)))
+  const unique = []
+  for (const a of list) {
+    const i = unique.findIndex((b) => collide(a, b))
+    if (i < 0) {
+      unique.push(a)
+      continue
+    }
+    const keepNew = tracked.has(a.key) && !tracked.has(unique[i].key)
+    const [kept, dropped] = keepNew ? [a, unique[i]] : [unique[i], a]
+    if (keepNew) unique[i] = a
+    warnings.push(`${dropped.key} 和 ${kept.key} 算同一位艺人，只跟踪 ${kept.key}。删掉 ${dropped.key}，别名补到 ${kept.key} 上`)
+  }
+  list = unique
   let kept = list
   if (list.length > MAX_ARTISTS) {
     const old = list.filter((a) => tracked.has(a.key))
@@ -74,7 +92,7 @@ export function limitArtists(list, tracked = new Set()) {
     const keep = new Set([...old, ...fresh].slice(0, MAX_ARTISTS).map((a) => a.key))
     kept = list.filter((a) => keep.has(a.key))
     const dropped = list.filter((a) => !keep.has(a.key)).map((a) => a.key)
-    warnings.push(`清单里有 ${list.length} 位艺人，最多跟踪 ${MAX_ARTISTS} 位，这几位没有跟踪：${dropped.join('、')}。先 unfollow 不再关注的，再加新的`)
+    warnings.push(`最多跟踪 ${MAX_ARTISTS} 位艺人，这几位没在跟踪：${dropped.join('、')}。先去掉不再关注的，再加新的`)
   }
   const artists = kept.map((a) => {
     if (a.aliases.length <= MAX_ALIASES) return a
@@ -103,9 +121,9 @@ export function followArtist(line, file = ARTISTS_FILE) {
   for (const other of parseArtists(text)) {
     if (i >= 0 && sameName(other.key, parseArtists(lines[i])[0].key)) continue
     const hit = [entry.key, ...entry.aliases].find((n) => [other.key, ...other.aliases].some((m) => sameName(n, m)))
-    if (hit) throw new Error(`${hit} 已经是 ${other.key} 的名字或别名。要给 ${other.key} 补别名，写 follow ${other.key}、新别名`)
+    if (hit) throw new Error(`${hit} 已经是 ${other.key} 的名字或别名。要补别名，写成“${other.key}、新别名”`)
   }
-  const tooMany = (n) => new Error(`${entry.key} 最多写 ${MAX_ALIASES} 个别名，加上这次一共 ${n} 个。挑最常见的写法留着`)
+  const tooMany = (n) => new Error(`${entry.key} 最多写 ${MAX_ALIASES} 个别名，加上这次有 ${n} 个`)
   if (i >= 0) {
     const old = parseArtists(lines[i])[0]
     const fresh = [entry.key, ...entry.aliases].filter((n) => n !== old.key && !old.aliases.includes(n))
@@ -117,20 +135,24 @@ export function followArtist(line, file = ARTISTS_FILE) {
   }
   if (entry.aliases.length > MAX_ALIASES) throw tooMany(entry.aliases.length)
   const count = parseArtists(text).length
-  if (count >= MAX_ARTISTS) throw new Error(`已经关注了 ${count} 位艺人，最多 ${MAX_ARTISTS} 位。先用 unfollow 去掉不再关注的`)
+  if (count >= MAX_ARTISTS) throw new Error(`已经关注了 ${count} 位艺人，最多 ${MAX_ARTISTS} 位。先去掉不再关注的`)
   writeLines(file, [...lines.filter((l, idx) => l !== '' || idx < lines.length - 1), [entry.key, ...entry.aliases].join('、')])
   return { ...entry, added: true }
 }
 
-/** 清单里删掉这位艺人。主名、别名都认，写法不同（大小写、末尾的“乐队”）也认。返回删掉的主名，没找到返回 null。 */
+/**
+ * 清单里删掉这位艺人。主名、别名都认，写法不同（大小写、末尾的“乐队”）也认。返回删掉的主名，没找到返回 null。
+ * 主名一字不差的那一行优先：网页上点 × 发来的是主名，手改的清单里可能有别的行的别名和它撞上。
+ */
 export function unfollowArtist(name, file = ARTISTS_FILE) {
   ensureArtistsFile(file)
   const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/)
+  const exact = (l) => parseArtists(l)[0]?.key === name
   const hit = (l) => {
     const a = parseArtists(l)[0]
     return a && [a.key, ...a.aliases].some((n) => sameName(n, name))
   }
-  const target = lines.find(hit)
+  const target = lines.find(exact) ?? lines.find(hit)
   if (!target) return null
   writeLines(
     file,
@@ -148,17 +170,24 @@ export function templateHint(list, file = ARTISTS_FILE, known = new Set()) {
   const seen = [...list.map((a) => a.key), ...known]
   const missing = parseArtists(fs.readFileSync(ARTISTS_TEMPLATE, 'utf8')).filter((t) => !seen.some((k) => sameName(k, t.key)))
   if (!missing.length) return null
-  return `config/artists.txt 里写了 ${missing.map((a) => a.key).join('、')}，但那只是第一次运行时复制用的底稿，改它不生效。真正的清单在 ${file}，用 follow 加`
+  return `config/artists.txt 只是底稿，改它不生效（里面写了 ${missing.map((a) => a.key).join('、')}）。真正的清单是 ${file}`
 }
 
 /** 写推送密钥，别的行保留；值是 null 的键删掉。文件只给自己读写。 */
 export function saveSecrets(values, file = SECRETS_FILE) {
+  // 一行一个键：值里带换行就能多写出一行，比如偷偷加一行 SMTP_HOST，把授权码送到别处
+  for (const [k, v] of Object.entries(values)) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(k)) throw new Error(`${k} 不是密钥的键名，没保存`)
+    if (v != null && /[\x00-\x1f\x7f]/.test(String(v))) throw new Error(`${k} 的值里有换行或控制字符，没保存`)
+  }
   const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(/\r?\n/) : []
   const keys = new Set(Object.keys(values))
-  const kept = lines.filter((l) => !keys.has(l.split('=')[0].trim()) && l !== '')
+  // 手写成“export KEY=…”的那行也算同一个键，换掉，不留两行
+  const kept = lines.filter((l) => !keys.has(l.split('=')[0].trim().replace(/^export\s+/, '')) && l !== '')
   const added = Object.entries(values).filter(([, v]) => v != null)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, [...kept, ...added.map(([k, v]) => `${k}=${v}`)].join('\n') + '\n', { mode: 0o600 })
+  // 值加上双引号：loadSecrets 会去掉两头的引号，不加的话，开头或结尾本来就是引号的密钥读回来就变了
+  fs.writeFileSync(file, [...kept, ...added.map(([k, v]) => `${k}="${v}"`)].join('\n') + '\n', { mode: 0o600 })
   fs.chmodSync(file, 0o600)
 }
 
@@ -168,7 +197,7 @@ function writeLines(file, lines) {
   fs.writeFileSync(file, text)
 }
 
-/** secrets.env：KEY=VALUE 一行一个，# 开头是注释。同名环境变量优先。 */
+/** secrets.env：KEY=VALUE 一行一个，# 开头是注释。同名环境变量优先，邮件的几项除外（见 ENV_OVERRIDABLE_KEYS）。 */
 export function loadSecrets(file = SECRETS_FILE) {
   const out = {}
   if (fs.existsSync(file)) {
@@ -176,10 +205,11 @@ export function loadSecrets(file = SECRETS_FILE) {
       const line = raw.trim()
       if (!line || line.startsWith('#')) continue
       const i = line.indexOf('=')
-      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, '')
+      // 手写成 shell 的“export KEY=…”也认。值两头的引号各去一个；值后面不支持再写注释
+      if (i > 0) out[line.slice(0, i).trim().replace(/^export\s+/, '')] = line.slice(i + 1).trim().replace(/^["']|["']$/g, '')
     }
   }
-  for (const key of SECRET_KEYS) {
+  for (const key of ENV_OVERRIDABLE_KEYS) {
     if (process.env[key]) out[key] = process.env[key]
   }
   return out

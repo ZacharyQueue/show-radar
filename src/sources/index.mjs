@@ -1,8 +1,8 @@
 // 数据源登记。每个适配器是一个模块，导出下面这些东西，run.mjs 只认这个接口。
 //
 //   name            'damai' | 'maoyan' | 'showstart' | 'gov'
-//   label           给用户看的名字：大麦、猫眼、秀动
-//   clientOptions   建请求客户端的参数，至少有 site，可以有 userAgent、minGapMs，可选数据源还有 hosts
+//   label           给用户看的名字：大麦、猫眼、秀动、文旅部
+//   clientOptions   建请求客户端的参数，至少有 site，可以有 userAgent、minGapMs。域名白名单在 src/http.mjs
 //   needsArtistId   要不要先找平台艺人 ID
 //   everyRun        每轮都取；false 表示一天只取一次
 //
@@ -21,16 +21,12 @@
 //
 // 出错只抛 src/errors.mjs 里的三种。被拦抛 BlockedError，接口或签名变了抛 ApiChangedError。
 
-import fs from 'node:fs'
 import * as damai from './damai.mjs'
+import * as gov from './gov.mjs'
 import * as maoyan from './maoyan.mjs'
 import * as showstart from './showstart.mjs'
 
-// 可选的数据源：文件在就加载，不在就没有。文件在、加载出错照常报错，不悄悄跳过。
-const optional = []
-if (fs.existsSync(new URL('./gov.mjs', import.meta.url))) optional.push(await import('./gov.mjs'))
-
-export const ADAPTERS = [damai, maoyan, showstart, ...optional]
+export const ADAPTERS = [damai, maoyan, showstart, gov]
 
 export function adapterByName(name) {
   return ADAPTERS.find((a) => a.name === name)

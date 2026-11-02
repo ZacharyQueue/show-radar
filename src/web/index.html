@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <title>演出雷达</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230071e3'/%3E%3Cg fill='none' stroke='white' stroke-width='2'%3E%3Ccircle cx='16' cy='16' r='10' opacity='.45'/%3E%3Ccircle cx='16' cy='16' r='5.5' opacity='.75'/%3E%3Cpath d='M16 16l7-7' stroke-linecap='round'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2' fill='white'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <div class="bar-inner">
+        <span class="bar-title" aria-hidden="true">演出雷达</span>
+        <div class="top-actions">
+          <button id="check-btn" type="button" class="ghost">检查各平台</button>
+          <button id="run-btn" type="button">现在抓一轮</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero">
+        <h1>演出雷达</h1>
+        <p id="runline" class="runline">正在读取…</p>
+      </div>
+
+      <section id="locked" class="card notice" hidden>
+        <h2>用终端里打印的链接打开</h2>
+        <p>链接每次启动都会换。终端已经关了，就在仓库目录里重新运行 <code>node src/cli.mjs start</code>。</p>
+      </section>
+
+      <section id="setup" class="group" hidden>
+        <h2 class="group-title">三步开始</h2>
+        <ol id="setup-steps" class="card steps"></ol>
+      </section>
+
+      <section id="shows" class="group">
+        <div class="group-head">
+          <h2>演出</h2>
+          <span id="shows-count" class="count"></span>
+        </div>
+        <div id="shows-body"></div>
+      </section>
+
+      <section id="artists" class="group">
+        <div class="group-head">
+          <h2>艺人</h2>
+          <span id="artists-count" class="count"></span>
+        </div>
+        <div class="card">
+          <form id="follow-form" class="follow" autocomplete="off">
+            <label for="follow-input" class="sr-only">要关注的艺人</label>
+            <input id="follow-input" name="line" type="text" placeholder="名字，别名用顿号隔开，比如 告五人、潘云安" maxlength="200" />
+            <button type="submit">关注</button>
+          </form>
+          <p id="follow-msg" class="msg" hidden></p>
+          <ul id="artist-list" class="chips"></ul>
+        </div>
+        <div id="artist-warnings"></div>
+      </section>
+
+      <section id="push" class="group">
+        <div class="group-head">
+          <h2>推送</h2>
+          <span id="push-count" class="count"></span>
+        </div>
+        <div id="push-body" class="card"></div>
+      </section>
+
+      <section id="runs" class="group">
+        <div class="group-head">
+          <h2>运行情况</h2>
+        </div>
+        <div id="check-result"></div>
+        <div id="health"></div>
+        <div id="last-round"></div>
+        <div id="runs-body"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <a id="docs" href="https://github.com/ZacharyQueue/show-radar#readme" target="_blank" rel="noopener noreferrer">使用说明</a>
+    </footer>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

@@ -54,7 +54,7 @@ export function textMessage(text) {
 }
 
 /**
- * 几条消息合成一条，给按条数计费的通道用。开售时间近的排前面，标题写排第一的那条，后面带上总条数。
+ * 几条消息合成一条，给只收合成一条的通道（Server酱、邮件）用。开售时间近的排前面，标题写排第一的那条，后面带上总条数。
  * items 是 eventCard、reminderCard、textMessage 的返回。
  */
 export function digestMessage(items) {

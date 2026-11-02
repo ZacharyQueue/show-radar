@@ -17,9 +17,9 @@ export const MIN_GAP_FLOOR_MS = 2000
 export const PUSH_SITES = new Set(['wecom', 'serverchan', 'wxpusher', 'bark'])
 
 // 除了推送通道，所有请求都只许发往这些域名，在发出去之前查最终的网址：拼字符串、模板都绕不过。
-// 推送通道不查，Bark 和企业微信可能是自建的地址。可选的数据源在 clientOptions.hosts 里声明自己的域名
-export const SOURCE_SITES = new Set(['damai', 'maoyan', 'showstart'])
-const SOURCE_HOSTS = new Set(['mtop.damai.cn', 'm.damai.cn', 'show.maoyan.com', 'm.dianping.com', 'www.showstart.com'])
+// 推送通道不查，Bark 和企业微信可能是自建的地址。数据源的域名只写在这里，适配器不能自己加
+export const SOURCE_SITES = new Set(['damai', 'maoyan', 'showstart', 'gov'])
+const SOURCE_HOSTS = new Set(['mtop.damai.cn', 'm.damai.cn', 'show.maoyan.com', 'm.dianping.com', 'www.showstart.com', 'zwfw.mct.gov.cn'])
 const MTOP_APIS = new Set(['mtop.damai.wireless.search.search', 'mtop.damai.item.detail.getdetail'])
 // 下单、库存、支付、登录、验证码一类的接口
 const FORBIDDEN_PATH = /order|cart|buy|pay|login|passport|captcha|subpage|sku|stock/i
@@ -55,8 +55,8 @@ export function onSourceRequest(fn) {
   sourceRequestHook = fn
 }
 
-// 数据源的 clientOptions 只认这几项：sleep、now、transport 这类测试用的口子不许适配器自己塞
-const SOURCE_OPTION_KEYS = new Set(['site', 'userAgent', 'minGapMs', 'hosts'])
+// 数据源的 clientOptions 只认这几项：sleep、now、transport、hosts 这类测试用的口子不许适配器自己塞
+const SOURCE_OPTION_KEYS = new Set(['site', 'userAgent', 'minGapMs'])
 
 /** 按适配器的 clientOptions 建请求客户端。推送通道的名字不能拿来当数据源的站点名，多余的选项直接报错。 */
 export function createSourceClient(clientOptions) {
@@ -74,7 +74,7 @@ const BLOCK_MARKERS = ['_____tmd_____/punish', '"action":"captcha"', 'RGV587_ERR
  * @param {number} [options.minGapMs] 两次请求的最小间隔，不低于 MIN_GAP_FLOOR_MS
  * @param {boolean} [options.floor] 推送通道传 false，不受间隔下限约束；只对 PUSH_SITES 里的站点有效
  * @param {boolean} [options.retry] 网络出错时重发一次。推送通道传 false：消息可能已经收下，只是回得慢，重发会推两遍
- * @param {string[]} [options.hosts] 可选数据源自己的域名，加进白名单
+ * @param {string[]} [options.hosts] 测试用：另外放行的域名，数据源不能用
  * @param {number} [options.timeoutMs]
  * @param {string} [options.localAddress] 绑定的本机地址；默认读 SHOW_RADAR_LOCAL_ADDRESS
  * @param {string} [options.userAgent]

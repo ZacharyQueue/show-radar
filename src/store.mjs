@@ -388,6 +388,16 @@ export function openStore(file) {
 
     startRun: (now) => Number(q('INSERT INTO runs (started_at) VALUES (?)').run(now).lastInsertRowid),
     finishRun: (id, now, stats) => q('UPDATE runs SET finished_at = ?, stats = ? WHERE id = ?').run(now, JSON.stringify(stats), id),
+
+    /** 最近几轮，新的在前。stats 解析好；没跑完的那轮 finishedAt 是 null。 */
+    recentRuns: (limit = 10) =>
+      q('SELECT * FROM runs ORDER BY started_at DESC, id DESC LIMIT ?').all(limit).map((r) => ({
+        id: r.id,
+        startedAt: r.started_at,
+        finishedAt: r.finished_at,
+        stats: r.stats ? JSON.parse(r.stats) : null,
+      })),
+
   }
   return store
 }

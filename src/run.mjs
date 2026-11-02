@@ -348,7 +348,7 @@ async function fetchSource({ adapter, artists, store, now, log, forceSlow, clien
 /**
  * 发消息，返回发出去的条数。
  * 逐条发的通道（企业微信、WxPusher、Bark）：先发文字（汇总、提醒、周报），再发卡片，一轮最多 15 张，多的合成一条清单。
- * 按条数计费的通道（Server酱）：这一轮要发的全部合成一条。
+ * 只收合成一条的通道（Server酱、邮件）：这一轮要发的全部合成一条。
  * 一条消息只要有一种通道发出去了就算推过；都没发出去的留到下一轮。
  */
 async function deliver({ store, notifier, now, log }) {

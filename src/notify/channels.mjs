@@ -1,7 +1,7 @@
 // 不用固定 IP 的推送通道：Server酱、WxPusher、Bark。企业微信在 wecom.mjs。
 // 每个通道导出同一个接口：{ name, batch, send(message) }，message 是 format.mjs 写好的卡片：
 //   { short, text, url, title?, description? }
-// batch 为 true 的通道按条数计费（Server酱免费每天 5 条），一次推送要把几条合成一条再发。
+// batch 为 true 的通道只收合成的一条（Server酱免费每天 5 条；邮件免得塞满收件箱），一次推送要把几条合成一条再发。
 
 import { createClient } from '../http.mjs'
 import { truncateBytes } from '../text.mjs'
